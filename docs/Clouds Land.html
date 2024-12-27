@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weather with Symbols</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Trebuchet MS', sans-serif;
+      overflow: hidden;
+      transition: background-color 1s ease, color 1s ease;
+      user-select: none;
+      position: relative; /* per gestire overlay in background */
+    }
+
+    .container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      pointer-events: none;
+      z-index: 2; /* sopra overlay */
+    }
+
+    .title {
+      font-size: 32px;
+      color: #444;
+      pointer-events: none;
+      user-select: none;
+      margin: 0;
+      transition: color 0.3s;
+      text-align: center;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: #666;
+      pointer-events: none;
+      user-select: none;
+      margin: 0;
+      transition: color 0.3s;
+      text-align: center;
+    }
+
+    /* L'overlay grigio è sotto gli altri elementi (z-index:0),
+       mentre le nuvole e i simboli hanno z-index:1 o più alto */
+    .gray-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #ddd;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 1s ease;
+      z-index: 0; /* dietro a nuvole/simboli */
+    }
+    .gray-overlay.visible {
+      opacity: 1;
+    }
+
+    /* Nuvole e simboli a z-index:1 */
+    .cloud-container,
+    .symbol {
+      position: absolute;
+      z-index: 1;
+    }
+
+    /* Nuvole base */
+    .cloud-container {
+      white-space: pre;
+      pointer-events: none;
+      user-select: none;
+      animation: moveClouds linear forwards;
+    }
+    .cloud-text {
+      font-size: 16px;
+      color: #888;
+      transition: color 0.3s;
+      display: inline-block;
+    }
+    .bold-cloud {
+      font-weight: bold;
+    }
+
+    @keyframes moveClouds {
+      /* Rallentiamo, da 110vw a -120vw in 80-120s */
+      from { transform: translateX(110vw); }
+      to   { transform: translateX(-120vw); }
+    }
+
+    /* Fulmine */
+    .lightning {
+      font-size: 24px;
+      color: gold;
+      user-select: none;
+      pointer-events: none;
+    }
+    @keyframes lightningBlink {
+      0%   { opacity: 1; }
+      50%  { opacity: 0; }
+      100% { opacity: 1; }
+    }
+
+    /* Pioggia */
+    .raindrop {
+      font-size: 16px;
+      color: #00aaff;
+      pointer-events: none;
+      user-select: none;
+      animation: fallRain 4s linear forwards; /* più lento */
+      z-index: 1;
+    }
+    @keyframes fallRain {
+      from { transform: translateY(0); }
+      to   { transform: translateY(110vh); }
+    }
+
+    /* Simboli extra */
+    .symbol {
+      pointer-events: auto; 
+      user-select: none;
+      cursor: default;
+      transition: color 0.3s;
+      white-space: pre;
+    }
+    /* Uccelli multipli */
+    .birds-multiline {
+      display: inline-block;
+      font-size: 18px;
+      line-height: 1.2;
+      white-space: pre;
+      pointer-events: none;
+      user-select: none;
+      animation: moveRightToLeft 60s linear forwards; /* più lento */
+    }
+
+    @keyframes moveRightToLeft {
+      from { transform: translateX(110vw); }
+      to   { transform: translateX(-110vw); }
+    }
+    @keyframes moveLeftToRight {
+      from { transform: translateX(-110vw); }
+      to   { transform: translateX(110vw); }
+    }
+
+    /* Plane tooltip */
+    .plane-tooltip {
+      position: absolute;
+      background: rgba(255,255,255,0.9);
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 14px;
+      pointer-events: none;
+      transform: translate(-50%, -105%);
+      white-space: nowrap;
+    }
+
+    /* Palloncino 🎈 */
+    .balloon {
+      animation: balloonMove 60s linear forwards, balloonFloat 2s ease-in-out infinite alternate;
+      pointer-events: none; 
+      user-select: none;
+    }
+    @keyframes balloonMove {
+      from { transform: translateX(110vw); }
+      to   { transform: translateX(-110vw); }
+    }
+    @keyframes balloonFloat {
+      0%   { transform: translateY(0) }
+      100% { transform: translateY(-20px) }
+    }
+
+    /* Sole ☼ */
+    .sun-symbol {
+      font-size: 32px;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    /* Simbolo vento: colore #c9c9c9 */
+    .wind-symbol {
+      color: #c9c9c9;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    /* Simbolo musicale fermo in basso a destra */
+    .music-stationary {
+      bottom: 50px;
+      right: 50px;
+      font-size: 20px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Overlay grigio (dietro le nuvole) -->
+  <div class="gray-overlay" id="grayOverlay"></div>
+
+  <div class="container">
+    <h1 class="title">.‧｡Welcome to Cloudy Land°.‧</h1>
+    <h2 class="subtitle">Enjoy the ASCII clouds floating</h2>
+  </div>
+
+  <script>
+    /****************************************
+     * ORARIO 19:00 (CET semplificato)
+     ****************************************/
+    function is19CET() {
+      const now = new Date();
+      const utcH = now.getUTCHours();
+      const cetH = (utcH + 1) % 24;
+      return cetH === 19;
+    }
+
+    function updateTheme() {
+      if (is19CET()) {
+        document.body.style.backgroundColor = "#888";
+        document.body.style.color = "#fff";
+      } else {
+        document.body.style.backgroundColor = "white";
+        document.body.style.color = "#000";
+      }
+    }
+    setInterval(updateTheme, 30000);
+    document.addEventListener("DOMContentLoaded", updateTheme);
+
+    /****************************************
+     * GESTIONE METEO
+     ****************************************/
+    let currentWeather = "";
+    let subWeather = "";
+    let weatherLock = false;
+
+    const grayOverlay = document.getElementById("grayOverlay");
+
+    function setWeather(newWeather) {
+      if (weatherLock) return;
+      currentWeather = newWeather;
+      weatherLock = true;
+      setTimeout(() => (weatherLock = false), 60000);
+
+      // Overlay grigio solo se stormy
+      if (newWeather === "stormy") {
+        grayOverlay.classList.add("visible");
+      } else {
+        grayOverlay.classList.remove("visible");
+      }
+
+      pickSubWeather(newWeather);
+    }
+
+    function pickSubWeather(main) {
+      // Sub-weather a seconda di "stormy/clear/cloudy/rain"
+      if (main==="stormy") {
+        // 40% tempesta, 30% cloudy, 30% rain
+        // Tempesta = 20% fulmini, 20% bold
+        let r1 = Math.random();
+        if (r1 < 0.4) {
+          let r2 = Math.random();
+          if (r2 < 0.5) subWeather = "stormy-fulmini";
+          else subWeather = "stormy-bold";
+        } else if (r1 < 0.7) {
+          subWeather = "cloudy-default";
+        } else {
+          subWeather = "rain-default";
+        }
+      }
+      else if (main==="clear") {
+        // 10% no clouds, 20% wind, 20% sun, 50% default
+        let rc = Math.random();
+        if (rc < 0.1) subWeather = "clear-none";
+        else if (rc < 0.3) subWeather = "clear-wind";
+        else if (rc < 0.5) subWeather = "clear-sun";
+        else subWeather = "clear-default";
+      }
+      else if (main==="cloudy") {
+        // 20% bold, 50% default, 20% wind, 10% balloon
+        let rc = Math.random();
+        if (rc < 0.2) subWeather = "cloudy-bold";
+        else if (rc < 0.7) subWeather = "cloudy-default";
+        else if (rc < 0.9) subWeather = "cloudy-wind";
+        else subWeather = "cloudy-balloon";
+      }
+      else if (main==="rain") {
+        subWeather = "rain-default";
+      }
+      generateEnvironment();
+    }
+
+    let environmentInterval = null;
+
+    function generateEnvironment() {
+      if (environmentInterval) clearInterval(environmentInterval);
+
+      switch(subWeather) {
+        case "stormy-fulmini":
+          environmentInterval = setInterval(() => createStormyClouds(true,false), 12000);
+          createStormyClouds(true,false);
+          break;
+        case "stormy-bold":
+          environmentInterval = setInterval(() => createStormyClouds(false,true), 12000);
+          createStormyClouds(false,true);
+          break;
+
+        case "cloudy-default":
+          environmentInterval = setInterval(() => createCloudy(false,false,false), 15000);
+          createCloudy(false,false,false);
+          break;
+        case "cloudy-bold":
+          environmentInterval = setInterval(() => createCloudy(true,false,false), 15000);
+          createCloudy(true,false,false);
+          break;
+        case "cloudy-wind":
+          environmentInterval = setInterval(() => createCloudy(false,true,false), 15000);
+          createCloudy(false,true,false);
+          break;
+        case "cloudy-balloon":
+          environmentInterval = setInterval(() => createCloudy(false,false,true), 15000);
+          createCloudy(false,false,true);
+          break;
+
+        case "clear-none":
+          environmentInterval = setInterval(() => {}, 20000);
+          break;
+        case "clear-wind":
+          environmentInterval = setInterval(() => createClear(true,false), 20000);
+          createClear(true,false);
+          break;
+        case "clear-sun":
+          environmentInterval = setInterval(() => createClear(false,true), 20000);
+          createClear(false,true);
+          break;
+        case "clear-default":
+          environmentInterval = setInterval(() => createClear(false,false), 20000);
+          createClear(false,false);
+          break;
+
+        case "rain-default":
+          environmentInterval = setInterval(() => createRain(), 7000);
+          createRain();
+          break;
+      }
+    }
+
+    /****************************************
+     * FUNZIONI PER CREARE NUBI, ECC.
+     ****************************************/
+    const cloudTemplates = [
+      `╭◜◝  ͡  ◜  ͡  ╮         ╭◜◝  ͡  ◜◝  ͡  ◝╮
+(                       )  ㅤ (    ㅤㅤㅤㅤ       )
+╰◟◞  ͜  ╭◜◝  ͡ ◜◝  ͡  ◝  ͡  ╮◞◟◞ ╯
+ㅤㅤ ㅤ (           ㅤ             )
+　　    ╰◟◞  ͜  ◟◞  ͜  ◟◞ ╯`,
+      `╭◜◝  ͡  ◜    ͡  ╮      
+(    ㅤㅤㅤㅤ        )
+╰ ◟    ◞  ͜  ╮◞◟`
+    ];
+
+    function createStormyClouds(withFulmini=false, boldClouds=false) {
+      // Fino a 2 nuvole
+      const count = Math.floor(Math.random()*2)+1;
+      for (let i=0; i<count; i++){
+        const container = document.createElement("div");
+        container.className = "cloud-container";
+
+        // Più lento: 80-120s
+        container.style.animationDuration = (Math.random()*40 + 80) + "s";
+        container.style.top = (Math.random()*70+10) + "%";
+
+        const cText = document.createElement("div");
+        cText.className = "cloud-text";
+        cText.textContent = cloudTemplates[Math.floor(Math.random()*cloudTemplates.length)];
+        if (boldClouds) cText.classList.add("bold-cloud");
+        container.appendChild(cText);
+
+        if (withFulmini && Math.random()<0.4) {
+          const lightning = document.createElement("div");
+          lightning.className = "lightning";
+          lightning.textContent = "⚡";
+          lightning.style.top = (Math.random()*20)+"px";
+          lightning.style.left = (Math.random()*60)+"px";
+          lightning.style.animation = `lightningBlink ${(Math.random()*1+0.5).toFixed(1)}s infinite steps(1,end)`;
+          container.appendChild(lightning);
+        }
+        container.addEventListener("animationend", ()=> container.remove());
+        document.body.appendChild(container);
+      }
+    }
+
+    function createCloudy(bold=false, wind=false, balloon=false) {
+      const count = Math.floor(Math.random()*2)+1;
+      for(let i=0;i<count;i++){
+        const container = document.createElement("div");
+        container.className = "cloud-container";
+        container.style.top = (Math.random()*60+20)+"%";
+        // 60-120s
+        container.style.animationDuration = (Math.random()*60+60)+"s";
+
+        const cText = document.createElement("div");
+        cText.className = "cloud-text";
+        cText.textContent = cloudTemplates[Math.floor(Math.random()*cloudTemplates.length)];
+        if (bold) cText.classList.add("bold-cloud");
+
+        container.appendChild(cText);
+        container.addEventListener("animationend", ()=> container.remove());
+        document.body.appendChild(container);
+      }
+
+      if (wind && Math.random()<0.5) createCloudyWindSymbol();
+      if (balloon && Math.random()<0.5) createBalloonSymbol();
+    }
+
+    function createCloudyWindSymbol() {
+      const windEl = document.createElement("div");
+      windEl.className = "wind-symbol"; 
+      windEl.style.position = "absolute";
+      windEl.style.top = (Math.random()*60+20)+"%";
+      windEl.style.left = (Math.random()*60+20)+"%";
+
+      // Sequenza
+      const frames = ["༄.°","࿐ ࿔*:･ﾟ","࿐ ࿔*:･ﾟ࿐ ࿔*:･ﾟ",". ݁₊ ⊹ . ݁˖ . ݁","࿐ ࿔*:･ﾟ","༄.°"];
+      let idx = 0;
+      windEl.textContent = frames[idx];
+
+      document.body.appendChild(windEl);
+
+      const intv = setInterval(()=> {
+        idx=(idx+1)%frames.length;
+        windEl.textContent=frames[idx];
+      },1000);
+
+      setTimeout(()=>{
+        clearInterval(intv);
+        windEl.remove();
+      },10000);
+    }
+
+    function createBalloonSymbol() {
+      const bal = document.createElement("div");
+      bal.className = "balloon";
+      bal.textContent = "🎈";
+      bal.style.top = (Math.random()*60+20)+"%";
+      bal.style.left = "100vw"; 
+      bal.addEventListener("animationend", ()=> bal.remove());
+      document.body.appendChild(bal);
+    }
+
+    function createClear(wind=false, sun=false) {
+      // Poche nuvole
+      const count = Math.floor(Math.random()*2);
+      for(let i=0;i<count;i++){
+        const container = document.createElement("div");
+        container.className = "cloud-container";
+        container.style.top = (Math.random()*50+20)+"%";
+        container.style.animationDuration = (Math.random()*50+60)+"s";
+
+        const cText = document.createElement("div");
+        cText.className = "cloud-text";
+        cText.textContent = cloudTemplates[Math.floor(Math.random()*cloudTemplates.length)];
+        container.appendChild(cText);
+
+        container.addEventListener("animationend", ()=>container.remove());
+        document.body.appendChild(container);
+      }
+
+      if (wind && Math.random()<0.7) createClearWindSymbol();
+      if (sun) createSunSymbol();
+    }
+
+    function createClearWindSymbol() {
+      const windEl = document.createElement("div");
+      windEl.className = "wind-symbol"; 
+      windEl.style.position = "absolute";
+      windEl.style.top = (Math.random()*40+20)+"%";
+      windEl.style.left = (Math.random()*70+10)+"%";
+
+      const frames = ["   ","     "];
+      let idx=0;
+      windEl.textContent=frames[idx];
+
+      document.body.appendChild(windEl);
+
+      const intv=setInterval(()=>{
+        idx=(idx+1)%frames.length;
+        windEl.textContent=frames[idx];
+      },1000);
+
+      setTimeout(()=>{
+        clearInterval(intv);
+        windEl.remove();
+      },8000);
+    }
+
+    function createSunSymbol() {
+      const nowH = new Date().getHours();
+      let sunTop = 50;
+      if (nowH>=5 && nowH<=7) sunTop=40;
+      else if (nowH>7 && nowH<11) sunTop=30;
+      else if (nowH>=11 && nowH<=13) sunTop=15;
+      else if (nowH>13 && nowH<17) sunTop=30;
+      else if (nowH>=17 && nowH<20) sunTop=40;
+
+      const sunEl = document.createElement("div");
+      sunEl.className = "sun-symbol";
+      sunEl.textContent = "☼";
+      sunEl.style.left = "50%";
+      sunEl.style.top = sunTop+"%";
+      sunEl.style.transform = "translateX(-50%)";
+
+      document.body.appendChild(sunEl);
+      setTimeout(()=> sunEl.remove(),30000);
+    }
+
+    function createRain() {
+      const nClouds = Math.floor(Math.random()*2)+1;
+      for(let i=0;i<nClouds;i++){
+        const cont = document.createElement("div");
+        cont.className = "cloud-container";
+        cont.style.top = (Math.random()*50+20)+"%";
+        cont.style.animationDuration = (Math.random()*60+60)+"s";
+
+        const cText = document.createElement("div");
+        cText.className = "cloud-text";
+        cText.textContent = cloudTemplates[Math.floor(Math.random()*cloudTemplates.length)];
+        cont.appendChild(cText);
+
+        cont.addEventListener("animationend", ()=> cont.remove());
+        document.body.appendChild(cont);
+      }
+
+      // 10-15 gocce
+      const dropsCount = Math.floor(Math.random()*5)+10;
+      for(let j=0;j<dropsCount;j++){
+        createRaindrop();
+      }
+    }
+
+    function createRaindrop() {
+      const drop = document.createElement("div");
+      drop.className = "raindrop";
+      drop.textContent = "\\";
+      drop.style.left = (Math.random()*100)+"vw";
+      drop.addEventListener("animationend", ()=> drop.remove());
+      document.body.appendChild(drop);
+    }
+
+    /****************************************
+     * SIMBOLI EXTRA (UCCELLI, AEREO, ECC.)
+     ****************************************/
+    function createBirdSymbol() {
+      const symbolEl = document.createElement("div");
+      symbolEl.className = "symbol";
+      symbolEl.textContent = "𓅮";
+      symbolEl.style.cursor = "pointer"; 
+
+      const topPos = Math.random() * 60 + 20;
+      symbolEl.style.top = topPos + "%";
+      symbolEl.style.animation = "moveRightToLeft 40s linear forwards"; // più lento
+
+      document.body.appendChild(symbolEl);
+
+      let toggle = false;
+      let useSpecialText = false;
+      const normalBird1 = "𓅮";
+      const normalBird2 = "𓅯";
+      const specialBird1 = "˗ˏˋ 𓅮 ˎˊ˗";
+      const specialBird2 = "˗ˏˋ 𓅯 ˎˊ˗";
+
+      const txtIntervalId = setInterval(() => {
+        if (!useSpecialText) {
+          symbolEl.textContent = toggle ? normalBird1 : normalBird2;
+        } else {
+          symbolEl.textContent = toggle ? specialBird1 : specialBird2;
+        }
+        toggle = !toggle;
+      }, 1000);
+
+      symbolEl.addEventListener("click", () => {
+        const r = Math.random();
+        if (r < 0.6) {
+          // 60% si sposta +20px verso l'alto
+          const currentTop = parseFloat(window.getComputedStyle(symbolEl).top);
+          symbolEl.style.top = (currentTop - 20) + "px";
+        } else if (r < 0.8) {
+          // 20%: esplosione "💥" in quella posizione
+          // Per bloccare l'animazione e mantenere la posizione orizzontale:
+          // 1) calcoliamo boundingBox
+          const rect = symbolEl.getBoundingClientRect();
+          // 2) rimuoviamo l'animazione
+          symbolEl.style.animation = "none";
+          // 3) posizioniamo in absolute con left/top fissi
+          symbolEl.style.position = "absolute";
+          symbolEl.style.top = (rect.top) + "px";
+          symbolEl.style.left = (rect.left) + "px";
+          symbolEl.style.transform = "none";
+          // 4) interrompiamo toggle
+          clearInterval(txtIntervalId);
+          // 5) testo = "💥"
+          symbolEl.textContent = "💥";
+          // 6) rimuoviamo dopo 3s
+          setTimeout(() => {
+            symbolEl.remove();
+          }, 3000);
+
+        } else {
+          // 20%: testo speciale per 20s
+          useSpecialText = true;
+          setTimeout(() => {
+            useSpecialText = false;
+          }, 20000);
+        }
+      });
+
+      symbolEl.addEventListener("animationend", () => {
+        clearInterval(txtIntervalId);
+        symbolEl.remove();
+      });
+    }
+
+    function createMultilineBirds() {
+      const symbolEl = document.createElement("div");
+      symbolEl.className = "birds-multiline symbol";
+
+      const variant1 = String.raw`            𓅯 
+          𓅮
+        𓅮
+      𓅯
+    𓅮
+  𓅯
+𓅮
+  𓅮
+    𓅯
+      𓅮
+        𓅯
+          𓅯
+            𓅮`;
+
+      const variant2 = String.raw`            𓅮
+          𓅯
+        𓅯
+      𓅮
+    𓅯
+  𓅮
+𓅯
+  𓅯
+    𓅮
+     𓅯
+       𓅮
+          𓅮
+            𓅯`;
+
+      symbolEl.textContent = variant1;
+      symbolEl.style.top = (Math.random()*60+10)+"%";
+      document.body.appendChild(symbolEl);
+
+      let toggle = false;
+      const intv = setInterval(()=>{
+        symbolEl.textContent = toggle ? variant1 : variant2;
+        toggle = !toggle;
+      },1000);
+
+      symbolEl.addEventListener("animationend",()=>{
+        clearInterval(intv);
+        symbolEl.remove();
+      });
+    }
+
+    function createPlaneSymbol() {
+      const symbolEl = document.createElement("div");
+      symbolEl.className = "symbol";
+      symbolEl.textContent = "ᯓ ✈︎";
+      symbolEl.style.cursor = "default"; 
+
+      symbolEl.style.top = (Math.random()*20+5)+"%"; 
+      symbolEl.style.animation = "moveLeftToRight 50s linear forwards"; // più lento
+      document.body.appendChild(symbolEl);
+
+      const flags = ["🇮🇹","🇫🇷","🇪🇸","🇬🇧","🇺🇸","🇩🇪","🇯🇵","🇰🇷","🇧🇷","🇦🇺","🇨🇦","🇨🇳","🇮🇳","🇦🇷","🇲🇽","🇪🇬","🇳🇱","🇳🇴","🇸🇪","🇫🇮","🇨🇭","🇦🇹","🇵🇱","🇵🇹"];
+      const randomFlag = flags[Math.floor(Math.random()*flags.length)];
+      let tooltipDiv = null;
+
+      symbolEl.addEventListener("mouseenter",()=>{
+        tooltipDiv = document.createElement("div");
+        tooltipDiv.className = "plane-tooltip";
+        tooltipDiv.textContent = randomFlag;
+        symbolEl.appendChild(tooltipDiv);
+      });
+      symbolEl.addEventListener("mouseleave",()=>{
+        if (tooltipDiv) {
+          tooltipDiv.remove();
+          tooltipDiv=null;
+        }
+      });
+      symbolEl.addEventListener("animationend",()=>{
+        if (tooltipDiv) tooltipDiv.remove();
+        symbolEl.remove();
+      });
+    }
+
+    function createRareBottomSymbol() {
+      const symbolEl = document.createElement("div");
+      symbolEl.className = "symbol";
+      symbolEl.textContent = "𓂃 ࣪˖ ִֶָ𐀔";
+      symbolEl.style.top = (Math.random()*10+80)+"%";
+      symbolEl.style.animation = "moveLeftToRight 50s linear forwards";
+      document.body.appendChild(symbolEl);
+
+      let toggle=false;
+      const intv=setInterval(()=>{
+        symbolEl.textContent = toggle ? "𓂃 ࣪˖ ִֶཐི༏ཋྀ" : "𓂃 ࣪˖ ִֶָ𐀔";
+        toggle=!toggle;
+      },1000);
+
+      symbolEl.addEventListener("animationend",()=>{
+        clearInterval(intv);
+        symbolEl.remove();
+      });
+    }
+
+    function createMusicSymbol() {
+      const symbolEl = document.createElement("div");
+      symbolEl.className = "symbol music-stationary";
+      symbolEl.style.zIndex = "2"; // sopra overlay
+      symbolEl.style.position = "absolute"; // per bottom/right
+
+      symbolEl.textContent = "♪♫~";
+      document.body.appendChild(symbolEl);
+
+      const variants = ["♪♫~", " ♫⋆｡♪ ₊˚♬ﾟ.", "♬.ᐟ"];
+      let idx=0;
+      const intv = setInterval(()=>{
+        idx=(idx+1)%variants.length;
+        symbolEl.textContent=variants[idx];
+      },1000);
+
+      // Resta 15s
+      setTimeout(()=>{
+        clearInterval(intv);
+        symbolEl.remove();
+      },15000);
+    }
+
+    /****************************************
+     * SPAWN SIMBOLI EXTRA
+     ****************************************/
+    function spawnExtraSymbols() {
+      // Evita in stormy e in rain
+      if (subWeather.startsWith("stormy")) return;
+      if (subWeather === "rain-default") return;
+
+      // Probabilità di generare i vari simboli
+      if (Math.random()<0.3) createBirdSymbol();       // 30%
+      if (Math.random()<0.1) createMultilineBirds();   // 10%
+      if (Math.random()<0.05) createPlaneSymbol();     // 5%
+      if (Math.random()<0.08) createMusicSymbol();     // 8%
+    }
+
+    /****************************************
+     * FARFALLA RARA OGNI 30 MIN, 50%
+     ****************************************/
+    setInterval(()=>{
+      if (!subWeather.startsWith("stormy") && subWeather!=="rain-default") {
+        if (Math.random()<0.5) createRareBottomSymbol();
+      }
+    },1800000);
+
+    /****************************************
+     * AVVIO
+     ****************************************/
+    const weathers = ["stormy","clear","cloudy","rain"];
+    function randomMainWeather() {
+      if (!weatherLock) {
+        const w = weathers[Math.floor(Math.random()*weathers.length)];
+        setWeather(w);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded",()=>{
+      randomMainWeather();
+      // Extra simboli ogni 30s
+      setInterval(spawnExtraSymbols, 30000);
+      // Cambia meteo ogni 2 min
+      setInterval(randomMainWeather, 120000);
+    });
+  </script>
+</body>
+</html>
